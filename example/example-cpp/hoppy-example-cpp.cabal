@@ -5,12 +5,19 @@ author: Bryan Gardiner <bog@khumba.net>
 maintainer: Bryan Gardiner <bog@khumba.net>
 copyright: Copyright 2015-2018 Bryan Gardiner
 build-type: Custom
-cabal-version: >=1.10
+cabal-version: >=1.24
 
 extra-source-files:
   Makefile
   cpp/utils.cpp
   cpp/utils.hpp
+
+custom-setup
+  setup-depends:
+      base
+    , Cabal
+    , hoppy-example-generator
+    , hoppy-runtime
 
 library
   hs-source-dirs: src
@@ -18,7 +25,6 @@ library
       Foreign.Hoppy.Example.Internal.EmptyCpp
   build-depends:
       base
-    , hoppy-example-generator
     , hoppy-runtime
   default-language: Haskell2010
   ghc-options: -W -fwarn-incomplete-patterns -fwarn-unused-do-bind
