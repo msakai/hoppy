@@ -56,6 +56,8 @@ module Foreign.Hoppy.Setup (
   ProjectConfig (..),
   cppMain,
   cppUserHooks,
+  cppMain2,
+  cppUserHooks2,
   hsMain,
   hsUserHooks,
   ) where
@@ -73,6 +75,11 @@ import Distribution.PackageDescription (
   PackageDescription,
   emptyBuildInfo,
   extraLibDirs,
+#if MIN_VERSION_Cabal(2,2,0)
+  cxxSources,
+#else
+  cSources,
+#endif
   )
 import Distribution.Simple (defaultMainWithHooks, simpleUserHooks)
 import Distribution.Simple.LocalBuildInfo (
@@ -298,6 +305,64 @@ findSystemProgram verbosity basename = do
       die $
 #endif
       "Couldn't find program " ++ show basename ++ "."
+
+-- | A @main@ implementation to be used in the @Setup.hs@ of a C++ gateway
+-- package that adds generated source code to @c-sources:@ or @cxx-sources:@.
+--
+-- @cppMain2 project = 'defaultMainWithHooks' $ 'cppUserHooks2' project@
+cppMain2 :: ProjectConfig -> IO ()
+cppMain2 project = defaultMainWithHooks $ cppUserHooks2 project
+
+-- | Cabal user hooks for a C++ gateway package.  that adds generated source
+-- code to @c-sources:@ or @cxx-sources:@. When overriding fields in th result,
+-- be sure to call the previous hook.
+--
+-- The following hooks are defined:
+--
+-- - 'postConf': Runs the generator program to generate C++ sources.  Checks if
+-- a @configure@ script exists in the C++ gateway root, and calls it if so
+-- (without arguments).
+--
+-- - 'preBuild': Add generate source codes into @c-sources:@ or @cxx-sources:@.
+--
+-- - 'buildHook': Runs @make@ with no arguments from the C++ gateway root.
+--
+-- - 'copyHook' and 'instHook': Runs @make install libdir=$libdir@ where
+-- @$libdir@ is the directory into which to install the built shared library.
+--
+-- - 'cleanHook': Removes files created by the generator, then calls @make
+-- clean@.
+cppUserHooks2 :: ProjectConfig -> UserHooks
+cppUserHooks2 project =
+  simpleUserHooks
+  { hookedPrograms = [generatorProgram, makeProgram]
+
+  , postConf = \args flags pkgDesc localBuildInfo -> do
+      let verbosity = fromFlagOrDefault normal $ configVerbosity flags
+      cppConfigure project verbosity localBuildInfo generatorProgram
+      postConf simpleUserHooks args flags pkgDesc localBuildInfo
+
+  , cleanHook = \pkgDesc z hooks flags -> do
+      cleanHook simpleUserHooks pkgDesc z hooks flags
+      let verbosity = fromFlagOrDefault normal $ cleanVerbosity flags
+      removeGeneratedFiles Cpp project verbosity
+
+  , preBuild = \_ _ -> addGeneratedSources project
+  }
+
+  where generatorProgram = getGeneratorProgram project
+
+addGeneratedSources :: ProjectConfig -> IO HookedBuildInfo
+addGeneratedSources project = do
+  let verbosity = normal
+  generatorProgram <- findSystemProgram verbosity $ generatorExecutableName project
+  generatedFiles <- fmap lines $ getProgramOutput verbosity generatorProgram ["--list-cpp-files"]
+  print [cppSourcesDir project </> file | file <- generatedFiles]
+#if MIN_VERSION_Cabal(2,2,0)
+  return (Just emptyBuildInfo { cxxSources = [cppSourcesDir project </> file | file <- generatedFiles]}, [])
+#else
+  return (Just emptyBuildInfo { cSources = [cppSourcesDir project </> file | file <- generatedFiles]}, [])
+#endif
 
 -- | A @main@ implementation to be used in the @Setup.hs@ of a Haskell gateway
 -- package.
