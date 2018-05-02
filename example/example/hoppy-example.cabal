@@ -20,11 +20,19 @@ library
     , UndecidableInstances
   build-depends:
       base
-    , hoppy-example-cpp
     , hoppy-example-generator
     , hoppy-runtime
   default-language: Haskell2010
   ghc-options: -W -fwarn-incomplete-patterns -fwarn-unused-do-bind
+  -- Use c-sources instead of cxx-sources as a workaround until Cabal-2.2.0 become widely used.
+  c-sources:
+    cpp/utils.cpp
+    cpp/utils.hpp
+  include-dirs: cpp
+  if os(darwin)
+    extra-libraries: c++
+  else
+    extra-libraries: stdc++
 
 executable hoppy-example
   hs-source-dirs: src-exe
