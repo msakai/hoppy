@@ -54,6 +54,8 @@
 -- to use these setup files.
 module Foreign.Hoppy.Setup (
   ProjectConfig (..),
+  bothMain,
+  bothUserHooks,
   cppMain,
   cppUserHooks,
   cppMain2,
@@ -469,6 +471,53 @@ addLibDir = do
 
 hsClean :: ProjectConfig -> Verbosity -> IO ()
 hsClean = removeGeneratedFiles Haskell
+
+-- | A @main@ implementation to be used in the @Setup.hs@ of a package containing
+-- both generated Haskell code and generated C++ code.
+--
+-- @hsMain project = 'defaultMainWithHooks' $ 'hsUserHooks' project@
+bothMain :: ProjectConfig -> IO ()
+bothMain project = defaultMainWithHooks $ bothUserHooks project
+
+-- | Cabal user hooks for a package containing both generated Haskell code and
+-- generated C++ code.  When overriding fields in the result, be sure to call
+-- the previous hook.
+--
+-- The following hooks are defined:
+--
+-- - 'postConf': Finds the shared library directory for the installed C++
+-- gateway package, and writes this path to a @dist\/build\/hoppy-cpp-libdir@
+-- file.  Runs the generator program to generate Haskell sources.
+--
+-- - 'preBuild': Add generated C++ sources to ''
+-- library directory from @dist\/build\/hoppy-cpp-libdir@ and adds it to the
+-- library search path ('extraLibDirs').
+--
+-- - 'cleanHook': Removes files created by the generator.
+bothUserHooks :: ProjectConfig -> UserHooks
+bothUserHooks project =
+  simpleUserHooks
+  { hookedPrograms = [generatorProgram]
+
+  , postConf = \args flags pkgDesc localBuildInfo -> do
+      let verbosity = fromFlagOrDefault normal $ configVerbosity flags
+      cppConfigure project verbosity localBuildInfo generatorProgram
+      let programDb = withPrograms localBuildInfo
+          sourcesDir = hsSourcesDir project
+      createDirectoryIfMissing True sourcesDir
+      runDbProgram verbosity generatorProgram programDb ["--gen-hs", sourcesDir]
+      postConf simpleUserHooks args flags pkgDesc localBuildInfo
+
+  , preBuild = \_ _ -> addGeneratedSources project
+
+  , cleanHook = \pkgDesc z hooks flags -> do
+      cleanHook simpleUserHooks pkgDesc z hooks flags
+      let verbosity = fromFlagOrDefault normal $ cleanVerbosity flags
+      removeGeneratedFiles Haskell project verbosity
+      removeGeneratedFiles Cpp project verbosity
+  }
+
+  where generatorProgram = getGeneratorProgram project
 
 -- TODO Remove empty directories.
 removeGeneratedFiles :: Language -> ProjectConfig -> Verbosity -> IO ()
